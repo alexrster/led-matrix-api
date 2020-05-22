@@ -38,6 +38,7 @@ serial = spi(port=0, device=0, gpio=noop())
 device = max7219(serial, cascaded=4, block_orientation=90, rotate=0, blocks_arranged_in_reverse_order=1)
 IDLE_MIN = 5
 idle = IDLE_MIN
+intensity = 100
 
 @app.route('/set/')
 def set_text():
@@ -72,6 +73,33 @@ def marquee_text():
     timer_1s()
     
     return msg
+
+@app.route('/lightbulb/set/')
+def lightbulb_set_brightness():
+    return str(set_brightness(request.args.get('brightness', default=100, type=int)))
+
+@app.route('/lightbulb/brightness/')
+def lightbulb_get_brightness():
+    global intensity
+    return str(intensity)
+
+@app.route('/lightbulb/status/')
+def lightbulb_get_status():
+    return str('1' if intensity > 0 else '0')
+
+@app.route('/lightbulb/on/')
+def lightbulb_set_on():
+    return str(set_brightness(100))
+
+@app.route('/lightbulb/off/')
+def lightbulb_set_off():
+    return str(set_brightness(0))
+
+def set_brightness(value):
+    global intensity
+    intensity = value
+    device.contrast(int(value * 255 / 100))
+    return value
 
 def parse_font_name(font_name):
     return fonts.get(font_name, SINCLAIR_FONT)
