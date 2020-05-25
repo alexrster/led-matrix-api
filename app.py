@@ -1,13 +1,14 @@
 import time
 import logging
 import sys
+import signal
 
 from flask import Flask, request
 from luma.led_matrix.device import max7219
 from luma.core.interface.serial import spi, noop
 from luma.core.render import canvas
 from luma.core.virtual import viewport
-from luma.core.legacy import text, show_message
+from luma.core.legacy import text, show_message, textsize
 from luma.core.legacy.font import proportional, tolerant, CP437_FONT, TINY_FONT, SINCLAIR_FONT, LCD_FONT
 from timeloop import Timeloop
 from datetime import timedelta
@@ -39,6 +40,7 @@ device = max7219(serial, cascaded=4, block_orientation=90, rotate=0, blocks_arra
 IDLE_MIN = 5
 idle = IDLE_MIN
 intensity = 100
+is_hidden = False
 
 @app.route('/set/')
 def set_text():
@@ -81,23 +83,34 @@ def lightbulb_set_brightness():
 @app.route('/lightbulb/brightness/')
 def lightbulb_get_brightness():
     global intensity
-    return str(intensity)
+    global is_hidden    
+    return str(0 if is_hidden else intensity)
 
 @app.route('/lightbulb/status/')
 def lightbulb_get_status():
-    return str('1' if intensity > 0 else '0')
+    global is_hidden
+    return "0" if is_hidden else "1"
 
 @app.route('/lightbulb/on/')
 def lightbulb_set_on():
-    return str(set_brightness(100))
+    global is_hidden
+    global intensity
+    is_hidden = False
+    device.show()
+    return str(intensity)
 
 @app.route('/lightbulb/off/')
 def lightbulb_set_off():
-    return str(set_brightness(0))
+    global is_hidden
+    is_hidden = True
+    device.hide()
+    return "0"
 
 def set_brightness(value):
     global intensity
+    global is_hidden
     intensity = value
+    is_hidden = False if intensity > 0 else True
     device.contrast(int(value * 255 / 100))
     return value
 
@@ -112,10 +125,28 @@ def timer_1s():
         return
 
     str = time.strftime("%H:%M" if idle % 2 > 0 else "%H %M")
+    #(txtlen, _) = textsize(str, font=utils.proportional2(SINCLAIR_FONT))
+    #coords = (int((32-txtlen)/2), 0)
+    coords = (1, 0)
     with canvas(device) as draw:
-        text(draw, (0, 0), str, fill="white", font=utils.proportional2(SINCLAIR_FONT)) 
+        text(draw, coords, str, fill="white", font=utils.proportional2(SINCLAIR_FONT)) 
     
 logger.info('Starting timeloop')
 tl.start(block=False)
 
-logger.info('Starting app')
+logger.info('Subscribe to OS signals')
+def app_quit(signal, frame):
+    print("Got signal {}".format(signal))
+    print("Stop timeloop")
+    tl.stop()
+
+    print("Stop device")
+    device.cleanup()
+
+    print("Exiting app")
+    sys.exit(0)
+
+signal.signal(signal.SIGTERM, app_quit)
+signal.signal(signal.SIGINT, app_quit)
+
+logger.info('')
