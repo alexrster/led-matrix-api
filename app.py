@@ -36,7 +36,7 @@ fonts = {
 }
 
 serial = spi(port=0, device=0, gpio=noop())
-device = max7219(serial, cascaded=4, block_orientation=90, rotate=0, blocks_arranged_in_reverse_order=1)
+device = max7219(serial, cascaded=8, block_orientation=90, rotate=0, blocks_arranged_in_reverse_order=1)
 IDLE_MIN = 5
 idle = IDLE_MIN
 intensity = 100
@@ -52,13 +52,15 @@ def set_text():
     backColor = "white" if inv > 0 else "black"
     fontName = parse_font_name(request.args.get('font'))
     font = proportional(fontName) if request.args.get('proportional') else tolerant(fontName)
-    x = request.args.get('x', default=1, type=int)
+    x = request.args.get('x', default=33, type=int)
     y = request.args.get('y', default=0, type=int)
 
+    target_rect = (32, 0, 64, 8)
+    #target_rect = device.bounding_box
+
     with canvas(device) as draw:
-        draw.rectangle(device.bounding_box, outline=backColor, fill=backColor)
+        draw.rectangle(target_rect, outline=backColor, fill=backColor)
         text(draw, (x, y), msg, fill=fillColor, font=font)
-    idle = 0
 
     return msg
 
@@ -106,6 +108,15 @@ def lightbulb_set_off():
     device.hide()
     return "0"
 
+def update_clock():
+    time_str = time.strftime("%H:%M" if idle % 2 > 0 else "%H %M")
+    #(txtlen, _) = textsize(time_str, font=utils.proportional2(SINCLAIR_FONT))
+    #coords = (int((32-txtlen)/2), 0)
+    coords = (1, 0)
+    with canvas(device) as draw:
+        text(draw, coords, time_str, fill="white", font=utils.proportional2(SINCLAIR_FONT))
+#        text(draw, (48, 0), chr(0x0F), fill="white", font=CP437_FONT)
+
 def set_brightness(value):
     global intensity
     global is_hidden
@@ -124,12 +135,7 @@ def timer_1s():
     if idle < IDLE_MIN:
         return
 
-    str = time.strftime("%H:%M" if idle % 2 > 0 else "%H %M")
-    #(txtlen, _) = textsize(str, font=utils.proportional2(SINCLAIR_FONT))
-    #coords = (int((32-txtlen)/2), 0)
-    coords = (1, 0)
-    with canvas(device) as draw:
-        text(draw, coords, str, fill="white", font=utils.proportional2(SINCLAIR_FONT)) 
+    update_clock()
     
 logger.info('Starting timeloop')
 tl.start(block=False)

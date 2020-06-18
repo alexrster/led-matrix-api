@@ -20,7 +20,8 @@
         "-p",
         "8050"
       ],
-      "jinja": true
+      "jinja": true,
+      "preLaunchTask": "Shutdown led-matrix-api service"
     }
   ]
 }
