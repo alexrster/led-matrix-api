@@ -12,10 +12,10 @@ class proportional2(object):
         bitmap = self.font[ascii_code]
         # Return a slim version of the space character
         if ascii_code == 32:
-            return [0] * 4
+            return [0] * 2
         # Return the same size for ':' character
         elif ascii_code == 58:
-            return [0] + self._trim(bitmap) + [0] * 2
+            return self._trim(bitmap) + [0]
         else:
             return self._trim(bitmap) + [0]
 

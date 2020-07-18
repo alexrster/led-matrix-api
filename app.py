@@ -39,7 +39,7 @@ serial = spi(port=0, device=0, gpio=noop())
 device = max7219(serial, cascaded=8, block_orientation=90, rotate=0, blocks_arranged_in_reverse_order=1)
 IDLE_MIN = 5
 idle = IDLE_MIN
-intensity = 100
+intensity = 30
 is_hidden = False
 is_busy = False
 drawer = None
@@ -76,8 +76,7 @@ def set_text():
 def clear():
     global drawer
     drawer = None
-
-    timer_100ms()
+    onDraw()
 
 @app.route('/reset/')
 def reset():
@@ -86,21 +85,21 @@ def reset():
 
 @app.route('/marquee/')
 def marquee_text():
-    return 'DISABLED'
+    return
 
-    global idle, is_busy
-    idle = -1000000
-    msg = request.args.get('msg')
-    fontName = parse_font_name(request.args.get('font'))
-    font = proportional(fontName) if request.args.get('proportional') else proportional(fontName)
+    # global idle, is_busy
+    # idle = -1000000
+    # msg = request.args.get('msg')
+    # fontName = parse_font_name(request.args.get('font'))
+    # font = proportional(fontName) if request.args.get('proportional') else proportional(fontName)
     
-    is_busy = True
-    show_message(device, msg, fill="white", font=font)
-    is_busy = False
-    idle = IDLE_MIN-1
-    timer_1s()
+    # is_busy = True
+    # show_message(device, msg, fill="white", font=font)
+    # is_busy = False
+    # idle = IDLE_MIN-1
+    # timer_1s()
     
-    return msg
+    # return
 
 @app.route('/lightbulb/set/')
 def lightbulb_set_brightness():
@@ -132,14 +131,6 @@ def lightbulb_set_off():
     device.hide()
     return "0"
 
-def update_clock(draw):
-    time_str = time.strftime("%H:%M" if idle % 2 > 0 else "%H %M")
-    #(txtlen, _) = textsize(time_str, font=utils.proportional2(SINCLAIR_FONT))
-    #coords = (int((32-txtlen)/2), 0)
-    coords = (1, 0)
-    text(draw, coords, time_str, fill="white", font=utils.proportional2(SINCLAIR_FONT))
-#    text(draw, (48, 0), chr(0x0F), fill="white", font=CP437_FONT)
-
 def set_brightness(value):
     global intensity
     global is_hidden
@@ -151,28 +142,43 @@ def set_brightness(value):
 def parse_font_name(font_name):
     return fonts.get(font_name, SINCLAIR_FONT)
 
-@tl.job(interval=timedelta(seconds=1))
-def timer_1s():
-    global idle
-    idle += 1
-    if idle < IDLE_MIN:
-        return
+dateDrawerMode = 0
+date_str = time.strftime("%d/%m")
+@tl.job(interval=timedelta(seconds=15))
+def updateDate():
+    global dateDrawerMode, date_str
+    dateDrawerMode = 1 if dateDrawerMode == 0 else 0
+    date_str = time.strftime("%d/%m") if dateDrawerMode == 0 else time.strftime("%a")
 
-@tl.job(interval=timedelta(milliseconds=100))
-def timer_100ms():
-    global is_busy, drawer
-    # if is_busy: 
-    #     return
-
+@tl.job(interval=timedelta(milliseconds=50))
+def onDraw():
+    global is_busy, drawer, dateDrawer
     with canvas(device) as draw:
         if drawer is not None and drawer['timeout'] > 0:
-            drawer['timeout'] = drawer['timeout'] - 100
+            drawer['timeout'] = drawer['timeout'] - 50
             drawer['func'](draw)
         else:
-            drawer = None
+            drawer = dateDrawer
+        drawClock(draw)
 
-        update_clock(draw)
-    
+def drawClock(draw):
+    time_str = time.strftime("%H:%M" if int(time.time()) % 2 > 0 else "%H %M")
+    #(txtlen, _) = textsize(time_str, font=utils.proportional2(SINCLAIR_FONT))
+    #coords = (int((32-txtlen)/2), 0)
+    coords = (1, 0)
+    text(draw, coords, time_str, fill="white", font=utils.proportional2(SINCLAIR_FONT))
+#    text(draw, (48, 0), chr(0x0F), fill="white", font=CP437_FONT)
+
+def drawDate(draw):
+    global date_str
+    (txtlen, _) = textsize(date_str, font=utils.proportional2(SINCLAIR_FONT))
+    coords = (64-txtlen, 0)
+    #coords = (32, 0)
+    text(draw, coords, date_str, fill="white", font=utils.proportional2(SINCLAIR_FONT))
+
+dateDrawer = dict(timeout = 100000000, func = drawDate)
+drawer = dateDrawer
+
 logger.info('Starting timeloop')
 tl.start(block=False)
 
