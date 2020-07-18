@@ -41,11 +41,14 @@ IDLE_MIN = 5
 idle = IDLE_MIN
 intensity = 100
 is_hidden = False
+is_busy = False
+drawer = None
 
 @app.route('/set/')
 def set_text():
-    global idle
+    global idle, drawer
     idle = 0
+    duration = request.args.get('duration', default=100, type=int)
     msg = request.args.get('msg')
     inv = request.args.get('invert', default=0, type=int)
     fillColor = "black" if inv > 0 else "white"
@@ -58,21 +61,42 @@ def set_text():
     target_rect = (32, 0, 64, 8)
     #target_rect = device.bounding_box
 
-    with canvas(device) as draw:
+    def text_draw(draw):
         draw.rectangle(target_rect, outline=backColor, fill=backColor)
         text(draw, (x, y), msg, fill=fillColor, font=font)
 
+    drawer = dict(
+        timeout = duration,
+        func = text_draw
+    )
+
     return msg
+
+@app.route('/clear/')
+def clear():
+    global drawer
+    drawer = None
+
+    timer_100ms()
+
+@app.route('/reset/')
+def reset():
+    device.cleanup()
+    device.show()
 
 @app.route('/marquee/')
 def marquee_text():
-    global idle
+    return 'DISABLED'
+
+    global idle, is_busy
     idle = -1000000
     msg = request.args.get('msg')
     fontName = parse_font_name(request.args.get('font'))
     font = proportional(fontName) if request.args.get('proportional') else proportional(fontName)
     
+    is_busy = True
     show_message(device, msg, fill="white", font=font)
+    is_busy = False
     idle = IDLE_MIN-1
     timer_1s()
     
@@ -108,14 +132,13 @@ def lightbulb_set_off():
     device.hide()
     return "0"
 
-def update_clock():
+def update_clock(draw):
     time_str = time.strftime("%H:%M" if idle % 2 > 0 else "%H %M")
     #(txtlen, _) = textsize(time_str, font=utils.proportional2(SINCLAIR_FONT))
     #coords = (int((32-txtlen)/2), 0)
     coords = (1, 0)
-    with canvas(device) as draw:
-        text(draw, coords, time_str, fill="white", font=utils.proportional2(SINCLAIR_FONT))
-#        text(draw, (48, 0), chr(0x0F), fill="white", font=CP437_FONT)
+    text(draw, coords, time_str, fill="white", font=utils.proportional2(SINCLAIR_FONT))
+#    text(draw, (48, 0), chr(0x0F), fill="white", font=CP437_FONT)
 
 def set_brightness(value):
     global intensity
@@ -135,7 +158,20 @@ def timer_1s():
     if idle < IDLE_MIN:
         return
 
-    update_clock()
+@tl.job(interval=timedelta(milliseconds=100))
+def timer_100ms():
+    global is_busy, drawer
+    # if is_busy: 
+    #     return
+
+    with canvas(device) as draw:
+        if drawer is not None and drawer['timeout'] > 0:
+            drawer['timeout'] = drawer['timeout'] - 100
+            drawer['func'](draw)
+        else:
+            drawer = None
+
+        update_clock(draw)
     
 logger.info('Starting timeloop')
 tl.start(block=False)
