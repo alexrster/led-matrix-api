@@ -143,12 +143,12 @@ def parse_font_name(font_name):
     return fonts.get(font_name, SINCLAIR_FONT)
 
 dateDrawerMode = 0
-date_str = time.strftime("%d/%m")
+date_str = ''
 @tl.job(interval=timedelta(seconds=15))
 def updateDate():
     global dateDrawerMode, date_str
     dateDrawerMode = 1 if dateDrawerMode == 0 else 0
-    date_str = time.strftime("%d/%m") if dateDrawerMode == 0 else time.strftime("%a")
+    date_str = time.strftime("%d %B") if dateDrawerMode == 1 else time.strftime("%A")
 
 @tl.job(interval=timedelta(milliseconds=50))
 def onDraw():
@@ -165,19 +165,20 @@ def drawClock(draw):
     time_str = time.strftime("%H:%M" if int(time.time()) % 2 > 0 else "%H %M")
     #(txtlen, _) = textsize(time_str, font=utils.proportional2(SINCLAIR_FONT))
     #coords = (int((32-txtlen)/2), 0)
-    coords = (1, 0)
+    coords = (0, 0)
     text(draw, coords, time_str, fill="white", font=utils.proportional2(SINCLAIR_FONT))
 #    text(draw, (48, 0), chr(0x0F), fill="white", font=CP437_FONT)
 
 def drawDate(draw):
     global date_str
-    (txtlen, _) = textsize(date_str, font=utils.proportional2(SINCLAIR_FONT))
-    coords = (64-txtlen, 0)
+    txtlen, _ = textsize(date_str, font=utils.proportional2(TINY_FONT))
+    coords = (65 - txtlen, 1)
     #coords = (32, 0)
-    text(draw, coords, date_str, fill="white", font=utils.proportional2(SINCLAIR_FONT))
+    text(draw, coords, date_str, fill="white", font=utils.proportional2(TINY_FONT))
 
 dateDrawer = dict(timeout = 100000000, func = drawDate)
 drawer = dateDrawer
+updateDate()
 
 logger.info('Starting timeloop')
 tl.start(block=False)
