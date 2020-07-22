@@ -15,6 +15,7 @@ class proportional2(object):
             return [0] * 2
         # Return the same size for ':' character
         elif ascii_code == 58:
+            bitmap = [0x00, 0x24, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
             return self._trim(bitmap) + [0]
         else:
             return self._trim(bitmap) + [0]

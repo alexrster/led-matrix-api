@@ -22,6 +22,26 @@
       ],
       "jinja": true,
       "preLaunchTask": "Shutdown led-matrix-api service"
+    },
+    {
+      "name": "Python: Profile Run",
+      "type": "python",
+      "request": "launch",
+      "module": "cProfile",
+      "env": {
+        "FLASK_APP": "app.py",
+        "FLASK_ENV": "development",
+        "FLASK_DEBUG": "1"
+      },
+      "args": [
+        "-s",
+        "filename",
+        "app.py",
+        ">",
+        "profiler.log"
+      ],
+      "jinja": true,
+      "preLaunchTask": "Shutdown led-matrix-api service"
     }
   ]
 }
