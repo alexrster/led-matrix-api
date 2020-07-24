@@ -2,6 +2,7 @@ import time
 import logging
 import sys
 import signal
+import pybrake
 
 from flask import Flask, request
 from luma.led_matrix.device import max7219
@@ -25,6 +26,10 @@ logger.setLevel(logging.INFO)
 
 logger.info('Initialize Led Matrix API')
 
+notifier = pybrake.Notifier(project_id=275208,
+                            project_key='01406c349e7152afb3c85714bf64cafe',
+                            environment='production')
+
 app = Flask(__name__)
 tl = Timeloop()
 
@@ -40,85 +45,92 @@ class textSnapshot(snapshot):
         self.text = text
         self.font = font
         self.color = color
-        w, h = textsize(text, font)
-        snapshot.__init__(self, w, h, interval=3600.0)
+        self.width = 32
+        self.height = 8
+        txtlen, _ = textsize(self.text, font=self.font)
+        self.coords = (self.width - txtlen + 1, 0)
+        snapshot.__init__(self, self.width, self.height, interval=3600.0)
     
     def update(self, draw):
-        text(draw, (0, 0), self.text, fill=self.color, font=self.font)
+        text(draw, self.coords, self.text, fill=self.color, font=self.font)
 
 class blinkingTextSnapshot(snapshot):
-    def __init__(self, text, font, duration=600):
+    def __init__(self, text, font, duration=1):
         self.text = text
         self.font = font
         self.color = "white"
+        self.backColor = "black"
         self.size = textsize(text, font)
-        w, h = self.size
-        snapshot.__init__(self, w, h, self.update, duration)
+        self.width, self.height = self.size
+        snapshot.__init__(self, self.width, self.height, self.update, duration)
     
     def update(self, draw):
-        fillColor = "black" if self.color=="black" else "white"
-        backColor = "white" if self.color=="black" else "black"
-        self.color = backColor
-        w, h = self.size
-        draw.rectangle((0, 0, w, h), outline=backColor, fill=backColor)
-        text(draw, (1, 0), self.text, fill=fillColor, font=self.font)
+        self.color = "black" if self.backColor=="black" else "white"
+        self.backColor = "white" if self.backColor=="black" else "black"
+        draw.rectangle((0, 0, self.width, self.height), outline=self.backColor, fill=self.backColor)
+        text(draw, (1, 0), self.text, fill=self.color, font=self.font)
+
+class currentDateSnapshot(snapshot):
+    def __init__(self):
+        self.currentView = 0
+        self.forceRedraw = False
+        snapshot.__init__(self, 35, 8, self.update, 15.0)
+    
+    def update(self, draw):
+        self.currentView  = 1 if self.currentView == 0 else 0
+        date_str = time.strftime("%d %B") if self.currentView == 1 else time.strftime("%A")
+        txtlen, _ = textsize(date_str, font=utils.proportional2(TINY_FONT))
+        coords = (36 - txtlen, 2)
+        text(draw, coords, date_str, fill="white", font=utils.proportional2(TINY_FONT))
+
+    def invalidate(self):
+        self.forceRedraw = True
+
+    def should_redraw(self):
+        if self.forceRedraw:
+            self.forceRedraw = False
+            return True
+        else:
+            return snapshot.should_redraw(self)
 
 def deviceInit(s):
     return max7219(s, cascaded=8, block_orientation=90, rotate=0, blocks_arranged_in_reverse_order=1)
 
 serial = spi(port=0, device=0, gpio=noop())
 device = deviceInit(serial)
-IDLE_MIN = 5
-idle = IDLE_MIN
-intensity = 1
-is_hidden = False
-is_busy = False
-drawer = None
 deviceViewport = viewport(device, 64, 8)
 
+@app.route('/marquee/')
 @app.route('/set/')
 def set_text():
-    global deviceViewport, dateSnapshot
+    global deviceViewport
+
+    text = request.args.get('msg')
+    fontName = parse_font_name(request.args.get('font'))
+    font = proportional(fontName) if request.args.get('proportional') else tolerant(fontName)
+    set_contentHotspot(textSnapshot(text=text, font=font), (32, 0))
+
+    return 'OK'
+
+@app.route('/blink/')
+def set_text_blink():
+    global deviceViewport
 
     text = request.args.get('msg')
     fontName = parse_font_name(request.args.get('font'))
     font = proportional(fontName) if request.args.get('proportional') else tolerant(fontName)
     duration = request.args.get('duration', default=600, type=int)
+    set_contentHotspot(blinkingTextSnapshot(text=text, font=font, duration=duration/1000), (32, 0))
 
-    deviceViewport.remove_hotspot(dateSnapshot, (32, 1))
-    deviceViewport.add_hotspot(blinkingTextSnapshot(text=text, font=font, duration=duration/1000), (32, 0))
-    
-    # global idle, drawer, deviceViewport, dateSnapshot
-    # idle = 0
-    # duration = request.args.get('duration', default=100, type=int)
-    # msg = request.args.get('msg')
-    # inv = request.args.get('invert', default=0, type=int)
-    # fillColor = "black" if inv > 0 else "white"
-    # backColor = "white" if inv > 0 else "black"
-    # fontName = parse_font_name(request.args.get('font'))
-    # font = proportional(fontName) if request.args.get('proportional') else tolerant(fontName)
-    # x = request.args.get('x', default=33, type=int)
-    # y = request.args.get('y', default=0, type=int)
-
-    # target_rect = (32, 0, 64, 8)
-    # #target_rect = device.bounding_box
-
-    # def text_draw(draw):
-    #     draw.rectangle(target_rect, outline=backColor, fill=backColor)
-    #     text(draw, (x, y), msg, fill=fillColor, font=font)
-
-    # drawer = dict(
-    #     timeout = duration,
-    #     func = text_draw
-    # )
-
-    # return msg
+    return 'OK'
 
 @app.route('/clear/')
 def clear():
-    global drawer, deviceViewport, dateSnapshot
-    drawer = None
-    onDraw()
+    global deviceViewport, dateSnapshot
+    set_contentHotspot(dateSnapshot, (29, 0))
+    dateSnapshot.invalidate()
+
+    return 'OK'
 
 @app.route('/reset/')
 def reset():
@@ -127,23 +139,14 @@ def reset():
     device = deviceInit(serial)
     device.show()
 
-@app.route('/marquee/')
-def marquee_text():
-    return
+    return 'OK'
 
-    # global idle, is_busy
-    # idle = -1000000
-    # msg = request.args.get('msg')
-    # fontName = parse_font_name(request.args.get('font'))
-    # font = proportional(fontName) if request.args.get('proportional') else proportional(fontName)
-    
-    # is_busy = True
-    # show_message(device, msg, fill="white", font=font)
-    # is_busy = False
-    # idle = IDLE_MIN-1
-    # timer_1s()
-    
-    # return
+# @app.route('/marquee/')
+# def marquee_text():
+#     return
+
+intensity = 1
+is_hidden = False
 
 @app.route('/lightbulb/set/')
 def lightbulb_set_brightness():
@@ -187,52 +190,26 @@ def set_brightness(value):
 def parse_font_name(font_name):
     return fonts.get(font_name, SINCLAIR_FONT)
 
-dateDrawerMode = 0
-date_str = ''
-date_str_coords = (0, 0)
-# @tl.job(interval=timedelta(seconds=15))
-# def updateDate():
-#     global dateDrawerMode, date_str
-#     dateDrawerMode = 1 if dateDrawerMode == 0 else 0
-#     date_str = time.strftime("%d %B") if dateDrawerMode == 1 else time.strftime("%A")
-
-# @tl.job(interval=timedelta(milliseconds=50))
-# def onDraw():
-#     global is_busy, drawer, dateDrawer
-#     with canvas(device) as draw:
-#         if drawer is not None and drawer['timeout'] > 0:
-#             drawer['timeout'] = drawer['timeout'] - 50
-#         else:
-#             drawer = dateDrawer
-
-#         drawer['func'](draw)
-#         drawClock(draw)
-
 def drawClock(draw, width = 0, height = 0):
     time_str = time.strftime("%H:%M" if int(time.time()) % 2 > 0 else "%H %M")
-    #(txtlen, _) = textsize(time_str, font=utils.proportional2(SINCLAIR_FONT))
-    #coords = (int((32-txtlen)/2), 0)
-    coords = (0, 0)
+    coords = (0, 1)
     text(draw, coords, time_str, fill="white", font=utils.proportional2(LCD_FONT))
-#    text(draw, (48, 0), chr(0x0F), fill="white", font=CP437_FONT)
 
-def drawDate(draw, width = 0, height = 0):
-    global dateDrawerMode
-    dateDrawerMode = 1 if dateDrawerMode == 0 else 0
-    date_str = time.strftime("%d %B") if dateDrawerMode == 1 else time.strftime("%A")
-    txtlen, _ = textsize(date_str, font=utils.proportional2(TINY_FONT))
-    coords = (36 - txtlen, 0)
-    text(draw, coords, date_str, fill="white", font=utils.proportional2(TINY_FONT))
-
-dateDrawer = dict(timeout = 100000000, func = drawDate)
-drawer = dateDrawer
-# updateDate()
+contentHotspot = None
+contentHotspotXY = None
+def set_contentHotspot(hotspot, xy):
+    global deviceViewport, contentHotspot, contentHotspotXY
+    if contentHotspot != None:
+        deviceViewport.remove_hotspot(contentHotspot, contentHotspotXY)
+    deviceViewport.add_hotspot(hotspot, xy)
+    contentHotspot = hotspot
+    contentHotspotXY = xy
 
 clockSnapshot = snapshot(29, 8, drawClock, 1.0)
-dateSnapshot = snapshot(35, 6, drawDate, 15.0)
+dateSnapshot = currentDateSnapshot()
 
 deviceViewport.add_hotspot(clockSnapshot, (0, 0))
-deviceViewport.add_hotspot(dateSnapshot, (29, 1))
+set_contentHotspot(dateSnapshot, (29, 0))
 
 deviceViewport.refresh()
 set_brightness(intensity)
