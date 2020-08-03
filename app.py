@@ -3,6 +3,7 @@ import logging
 import sys
 import signal
 import pybrake
+import os
 
 from flask import Flask, request
 from luma.led_matrix.device import max7219
@@ -15,6 +16,7 @@ from timeloop import Timeloop
 from datetime import timedelta
 
 import utils
+import weather
 
 logger = logging.getLogger(__name__)
 ch = logging.StreamHandler(sys.stdout)
@@ -25,10 +27,13 @@ logger.addHandler(ch)
 logger.setLevel(logging.INFO)
 
 logger.info('Initialize Led Matrix API')
-
-notifier = pybrake.Notifier(project_id=275208,
-                            project_key='01406c349e7152afb3c85714bf64cafe',
+logger.info('Create PyBrake notifier client')
+notifier = pybrake.Notifier(project_id=os.environ.get('PYBRAKE_PROJECT_ID'),
+                            project_key=os.environ.get('PYBRAKE_PROJECT_KEY'),
                             environment='production')
+
+logger.info('Create OpenWeatherMap client')
+weatherProvider = weather.OpenWeatherMap(os.environ.get('OPENWEATHERMAP_APPID'))
 
 app = Flask(__name__)
 tl = Timeloop()
@@ -92,6 +97,51 @@ class currentDateSnapshot(snapshot):
             return True
         else:
             return snapshot.should_redraw(self)
+
+
+class multipleSnapshotsLoopSnapshot(snapshot):
+    def __init__(self, *views):
+        self.views = views
+        self.currentView = 0
+        self.forceRedraw = False
+        snapshot.__init__(self, 35, 8, self.update, 15.0)
+    
+    def update(self, draw):
+        self.currentView = self.currentView + 1 if self.currentView + 1 < len(self.views) else 0
+        self.views[self.currentView](draw)
+
+    def invalidate(self):
+        self.forceRedraw = True
+
+    def should_redraw(self):
+        if self.forceRedraw:
+            self.forceRedraw = False
+            return True
+        else:
+            return snapshot.should_redraw(self)
+
+class dateAndWeatherSnapshot(multipleSnapshotsLoopSnapshot):
+    def __init__(self, weatherProvider):
+        self.weather = weatherProvider
+        multipleSnapshotsLoopSnapshot.__init__(self, self.drawTemp, self.drawMonth, self.drawDay)
+    
+    def drawMonth(self, draw):
+        date_str = time.strftime("%d %B")
+        txtlen, _ = textsize(date_str, font=utils.proportional2(TINY_FONT))
+        coords = (36 - txtlen, 2)
+        text(draw, coords, date_str, fill="white", font=utils.proportional2(TINY_FONT)) 
+
+    def drawDay(self, draw):
+        date_str = time.strftime("%A")
+        txtlen, _ = textsize(date_str, font=utils.proportional2(TINY_FONT))
+        coords = (36 - txtlen, 2)
+        text(draw, coords, date_str, fill="white", font=utils.proportional2(TINY_FONT))
+
+    def drawTemp(self, draw):
+        date_str = u"%d 'C" % (self.weather.temp)
+        txtlen, _ = textsize(date_str, font=utils.proportional2(TINY_FONT))
+        coords = (36 - txtlen, 2)
+        text(draw, coords, date_str, fill="white", font=utils.proportional2(TINY_FONT))
 
 def deviceInit(s):
     return max7219(s, cascaded=8, block_orientation=90, rotate=0, blocks_arranged_in_reverse_order=1)
@@ -206,18 +256,24 @@ def set_contentHotspot(hotspot, xy):
     contentHotspotXY = xy
 
 clockSnapshot = snapshot(29, 8, drawClock, 1.0)
-dateSnapshot = currentDateSnapshot()
+dateSnapshot = dateAndWeatherSnapshot(weatherProvider)
 
 deviceViewport.add_hotspot(clockSnapshot, (0, 0))
 set_contentHotspot(dateSnapshot, (29, 0))
 
 deviceViewport.refresh()
-set_brightness(intensity)
+set_brightness(weatherProvider.led_brightness)
 
 @tl.job(interval=timedelta(milliseconds=50))
 def onDraw():
     global deviceViewport
     deviceViewport.refresh()
+
+@tl.job(interval=timedelta(minutes=30))
+def onWeatherUpdate():
+    global weatherProvider
+    weatherProvider.update()
+    set_brightness(weatherProvider.led_brightness)
 
 logger.info('Starting timeloop')
 tl.start(block=False)
