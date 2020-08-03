@@ -27,10 +27,10 @@ logger.addHandler(ch)
 logger.setLevel(logging.INFO)
 
 logger.info('Initialize Led Matrix API')
+
 logger.info('Create PyBrake notifier client')
-notifier = pybrake.Notifier(project_id=os.environ.get('PYBRAKE_PROJECT_ID'),
-                            project_key=os.environ.get('PYBRAKE_PROJECT_KEY'),
-                            environment='production')
+if os.environ.get('PYBRAKE_PROJECT_ID'):
+    pybrake.Notifier(project_id=os.environ.get('PYBRAKE_PROJECT_ID'), project_key=os.environ.get('PYBRAKE_PROJECT_KEY'), environment='production')
 
 logger.info('Create OpenWeatherMap client')
 weatherProvider = weather.OpenWeatherMap(os.environ.get('OPENWEATHERMAP_APPID'))
@@ -45,7 +45,18 @@ fonts = {
     'lcd': LCD_FONT
 }
 
-class textSnapshot(snapshot):
+class subtleSnapshot(snapshot):
+    def __init__(self, width, height, drawFunc, interval, doneFunc=None):
+        self.doneFunc = doneFunc
+        snapshot.__init__(self, width, height, drawFunc or self.update, interval)
+    
+    def isRetired(self):
+        return False
+
+    def update(self):
+        pass
+
+class textSnapshot(subtleSnapshot):
     def __init__(self, text, font, color="white"):
         self.text = text
         self.font = font
@@ -54,12 +65,12 @@ class textSnapshot(snapshot):
         self.height = 8
         txtlen, _ = textsize(self.text, font=self.font)
         self.coords = (self.width - txtlen + 1, 0)
-        snapshot.__init__(self, self.width, self.height, interval=3600.0)
+        subtleSnapshot.__init__(self, self.width, self.height, self.update, 3600.0)
     
     def update(self, draw):
         text(draw, self.coords, self.text, fill=self.color, font=self.font)
 
-class blinkingTextSnapshot(snapshot):
+class blinkingTextSnapshot(subtleSnapshot):
     def __init__(self, text, font, duration=1):
         self.text = text
         self.font = font
@@ -67,7 +78,7 @@ class blinkingTextSnapshot(snapshot):
         self.backColor = "black"
         self.size = textsize(text, font)
         self.width, self.height = self.size
-        snapshot.__init__(self, self.width, self.height, self.update, duration)
+        subtleSnapshot.__init__(self, self.width, self.height, self.update, duration)
     
     def update(self, draw):
         self.color = "black" if self.backColor=="black" else "white"
@@ -75,11 +86,11 @@ class blinkingTextSnapshot(snapshot):
         draw.rectangle((0, 0, self.width, self.height), outline=self.backColor, fill=self.backColor)
         text(draw, (1, 0), self.text, fill=self.color, font=self.font)
 
-class currentDateSnapshot(snapshot):
+class currentDateSnapshot(subtleSnapshot):
     def __init__(self):
         self.currentView = 0
         self.forceRedraw = False
-        snapshot.__init__(self, 35, 8, self.update, 15.0)
+        subtleSnapshot.__init__(self, 35, 8, self.update, 15.0)
     
     def update(self, draw):
         self.currentView  = 1 if self.currentView == 0 else 0
@@ -99,12 +110,12 @@ class currentDateSnapshot(snapshot):
             return snapshot.should_redraw(self)
 
 
-class multipleSnapshotsLoopSnapshot(snapshot):
+class multipleSnapshotsLoopSnapshot(subtleSnapshot):
     def __init__(self, *views):
         self.views = views
         self.currentView = 0
         self.forceRedraw = False
-        snapshot.__init__(self, 35, 8, self.update, 15.0)
+        subtleSnapshot.__init__(self, 35, 8, self.update, 15.0)
     
     def update(self, draw):
         self.currentView = self.currentView + 1 if self.currentView + 1 < len(self.views) else 0
@@ -126,13 +137,13 @@ class dateAndWeatherSnapshot(multipleSnapshotsLoopSnapshot):
         multipleSnapshotsLoopSnapshot.__init__(self, self.drawTemp, self.drawMonth, self.drawDay)
     
     def drawMonth(self, draw):
-        date_str = time.strftime("%d %B")
+        date_str = time.strftime("%d %b").upper()
         txtlen, _ = textsize(date_str, font=utils.proportional2(TINY_FONT))
         coords = (36 - txtlen, 2)
         text(draw, coords, date_str, fill="white", font=utils.proportional2(TINY_FONT)) 
 
     def drawDay(self, draw):
-        date_str = time.strftime("%A")
+        date_str = time.strftime("%A").upper()
         txtlen, _ = textsize(date_str, font=utils.proportional2(TINY_FONT))
         coords = (36 - txtlen, 2)
         text(draw, coords, date_str, fill="white", font=utils.proportional2(TINY_FONT))
@@ -143,12 +154,41 @@ class dateAndWeatherSnapshot(multipleSnapshotsLoopSnapshot):
         coords = (36 - txtlen, 2)
         text(draw, coords, date_str, fill="white", font=utils.proportional2(TINY_FONT))
 
+class marqueeSnapshot(hotspot):
+    def __init__(self, text, font=None, fill="white", doneFunc=None):
+        self.text = text
+        self.font = font or utils.proportional2(TINY_FONT)
+        self.fill = fill
+        self.doneFunc = doneFunc
+        self.viewportWidth = 35
+        self.viewportHeight = 8
+        self.textWidth, self.textHeight = textsize(self.text, font=self.font)
+        self.offsetX = self.viewportWidth
+        self.offsetY = self.viewportHeight - self.textHeight + 2
+        hotspot.__init__(self, self.viewportWidth, self.viewportHeight, self.update)
+    
+    def update(self, draw):
+        if self.isRetired():
+            return
+
+        self.offsetX = self.offsetX - 1
+        if not self.isRetired():
+            text(draw, (self.offsetX, self.offsetY), self.text, fill=self.fill, font=self.font)
+        else:
+            self.doneFunc()
+    
+    def isRetired(self):
+        return self.offsetX + self.textWidth <= 0
+
 def deviceInit(s):
     return max7219(s, cascaded=8, block_orientation=90, rotate=0, blocks_arranged_in_reverse_order=1)
 
 serial = spi(port=0, device=0, gpio=noop())
 device = deviceInit(serial)
 deviceViewport = viewport(device, 64, 8)
+    
+intensity = 1
+is_hidden = False
 
 @app.route('/marquee/')
 @app.route('/set/')
@@ -182,21 +222,13 @@ def clear():
 
     return 'OK'
 
-@app.route('/reset/')
-def reset():
-    global device, serial
-    device.cleanup()
-    device = deviceInit(serial)
-    device.show()
+@app.route('/debug/')
+def debug():
+    global deviceViewport, weatherProvider, intensity
+    debugMsg = u'MODE: %s  |  LED: %d%%  |  SUNRISE: %s  |  SUNSET: %s' % (weatherProvider.day_phase.upper(), intensity, weatherProvider.sunrise.strftime('%H:%M'), weatherProvider.sunset.strftime('%H:%M'))
+    set_contentHotspot(marqueeSnapshot(debugMsg, font=utils.proportional2(TINY_FONT), doneFunc=clear), (29, 0))
 
-    return 'OK'
-
-# @app.route('/marquee/')
-# def marquee_text():
-#     return
-
-intensity = 1
-is_hidden = False
+    return debugMsg
 
 @app.route('/lightbulb/set/')
 def lightbulb_set_brightness():
@@ -264,7 +296,7 @@ set_contentHotspot(dateSnapshot, (29, 0))
 deviceViewport.refresh()
 set_brightness(weatherProvider.led_brightness)
 
-@tl.job(interval=timedelta(milliseconds=50))
+@tl.job(interval=timedelta(milliseconds=30))
 def onDraw():
     global deviceViewport
     deviceViewport.refresh()

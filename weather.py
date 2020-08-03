@@ -16,20 +16,21 @@ class OpenWeatherMap(object):
     api_result = requests.get('https://api.openweathermap.org/data/2.5/weather', self.params)
     api_response = api_result.json()
 
-    sunrise = datetime.datetime.fromtimestamp(api_response['sys']['sunrise'])
-    sunset = datetime.datetime.fromtimestamp(api_response['sys']['sunset'])
     now = datetime.datetime.now()
 
-    if sunrise - now > datetime.timedelta(minutes=30):
+    self.sunrise = datetime.datetime.fromtimestamp(api_response['sys']['sunrise'])
+    self.sunset = datetime.datetime.fromtimestamp(api_response['sys']['sunset'])
+
+    if self.sunrise - now > datetime.timedelta(minutes=30):
         self.led_brightness = 1
         self.day_phase = 'night'
-    elif now - sunset > datetime.timedelta(minutes=30):
+    elif now - self.sunset > datetime.timedelta(minutes=30):
         self.led_brightness = 1
         self.day_phase = 'night'
-    elif now - sunrise <= datetime.timedelta(minutes=30):
+    elif now - self.sunrise <= datetime.timedelta(minutes=30):
         self.led_brightness = 40
         self.day_phase = 'sunrise'
-    elif sunset - now <= datetime.timedelta(minutes=30):
+    elif self.sunset - now <= datetime.timedelta(minutes=30):
         self.led_brightness = 40
         self.day_phase = 'sunset'
     else:
