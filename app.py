@@ -118,8 +118,8 @@ class multipleSnapshotsLoopSnapshot(subtleSnapshot):
         subtleSnapshot.__init__(self, 35, 8, self.update, 15.0)
     
     def update(self, draw):
-        self.currentView = self.currentView + 1 if self.currentView + 1 < len(self.views) else 0
         self.views[self.currentView](draw)
+        self.currentView = self.currentView + 1 if self.currentView + 1 < len(self.views) else 0
 
     def invalidate(self):
         self.forceRedraw = True
@@ -134,7 +134,7 @@ class multipleSnapshotsLoopSnapshot(subtleSnapshot):
 class dateAndWeatherSnapshot(multipleSnapshotsLoopSnapshot):
     def __init__(self, weatherProvider):
         self.weather = weatherProvider
-        multipleSnapshotsLoopSnapshot.__init__(self, self.drawTemp, self.drawMonth, self.drawDay)
+        multipleSnapshotsLoopSnapshot.__init__(self, self.drawMonth, self.drawDay, self.drawTemp, self.drawDesc, self.drawLed)
     
     def drawMonth(self, draw):
         date_str = time.strftime("%d %b").upper()
@@ -150,6 +150,18 @@ class dateAndWeatherSnapshot(multipleSnapshotsLoopSnapshot):
 
     def drawTemp(self, draw):
         date_str = u"%d 'C" % (self.weather.temp)
+        txtlen, _ = textsize(date_str, font=utils.proportional2(TINY_FONT))
+        coords = (36 - txtlen, 2)
+        text(draw, coords, date_str, fill="white", font=utils.proportional2(TINY_FONT))
+
+    def drawDesc(self, draw):
+        date_str = u"%s" % (self.weather.lastData['weather'][0]['main'].lower())
+        txtlen, _ = textsize(date_str, font=utils.proportional2(TINY_FONT))
+        coords = (36 - txtlen, 2)
+        text(draw, coords, date_str, fill="white", font=utils.proportional2(TINY_FONT))
+
+    def drawLed(self, draw):
+        date_str = u"LED: %d%%" % (intensity)
         txtlen, _ = textsize(date_str, font=utils.proportional2(TINY_FONT))
         coords = (36 - txtlen, 2)
         text(draw, coords, date_str, fill="white", font=utils.proportional2(TINY_FONT))
@@ -225,7 +237,7 @@ def clear():
 @app.route('/debug/')
 def debug():
     global deviceViewport, weatherProvider, intensity
-    debugMsg = u'MODE: %s  |  LED: %d%%  |  NEXT MODE: %s @%s' % (weatherProvider.dayPhase.upper(), intensity, weatherProvider.nextDayPhase.upper(), weatherProvider.nextDayPhaseStart.strftime('%H:%M'))
+    debugMsg = u'%s  |  LED: %d%%  |  NEXT MODE: %s @%s' % (weatherProvider.dayPhase.upper(), intensity, weatherProvider.nextDayPhase.upper(), weatherProvider.nextDayPhaseStart.strftime('%H:%M'))
     set_contentHotspot(marqueeSnapshot(debugMsg, width=38, height=8, font=utils.proportional2(TINY_FONT), doneFunc=clear), (26, 0))
     logger.info('Last weather data: %s', weatherProvider.lastData)
 
