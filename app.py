@@ -155,13 +155,13 @@ class dateAndWeatherSnapshot(multipleSnapshotsLoopSnapshot):
         text(draw, coords, date_str, fill="white", font=utils.proportional2(TINY_FONT))
 
 class marqueeSnapshot(hotspot):
-    def __init__(self, text, font=None, fill="white", doneFunc=None):
+    def __init__(self, text, width, height, font=None, fill="white", doneFunc=None):
         self.text = text
         self.font = font or utils.proportional2(TINY_FONT)
         self.fill = fill
         self.doneFunc = doneFunc
-        self.viewportWidth = 35
-        self.viewportHeight = 8
+        self.viewportWidth = width
+        self.viewportHeight = height
         self.textWidth, self.textHeight = textsize(self.text, font=self.font)
         self.offsetX = self.viewportWidth
         self.offsetY = self.viewportHeight - self.textHeight + 2
@@ -225,8 +225,9 @@ def clear():
 @app.route('/debug/')
 def debug():
     global deviceViewport, weatherProvider, intensity
-    debugMsg = u'MODE: %s  |  LED: %d%%  |  SUNRISE: %s  |  SUNSET: %s' % (weatherProvider.day_phase.upper(), intensity, weatherProvider.sunrise.strftime('%H:%M'), weatherProvider.sunset.strftime('%H:%M'))
-    set_contentHotspot(marqueeSnapshot(debugMsg, font=utils.proportional2(TINY_FONT), doneFunc=clear), (29, 0))
+    debugMsg = u'MODE: %s  |  LED: %d%%  |  NEXT MODE: %s @%s' % (weatherProvider.dayPhase.upper(), intensity, weatherProvider.nextDayPhase.upper(), weatherProvider.nextDayPhaseStart.strftime('%H:%M'))
+    set_contentHotspot(marqueeSnapshot(debugMsg, width=38, height=8, font=utils.proportional2(TINY_FONT), doneFunc=clear), (26, 0))
+    logger.info('Last weather data: %s', weatherProvider.lastData)
 
     return debugMsg
 
@@ -294,18 +295,18 @@ deviceViewport.add_hotspot(clockSnapshot, (0, 0))
 set_contentHotspot(dateSnapshot, (29, 0))
 
 deviceViewport.refresh()
-set_brightness(weatherProvider.led_brightness)
+set_brightness(weatherProvider.lightIntensity)
 
 @tl.job(interval=timedelta(milliseconds=30))
 def onDraw():
     global deviceViewport
     deviceViewport.refresh()
 
-@tl.job(interval=timedelta(minutes=30))
+@tl.job(interval=timedelta(minutes=2))
 def onWeatherUpdate():
     global weatherProvider
     weatherProvider.update()
-    set_brightness(weatherProvider.led_brightness)
+    set_brightness(weatherProvider.lightIntensity)
 
 logger.info('Starting timeloop')
 tl.start(block=False)
