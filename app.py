@@ -111,11 +111,11 @@ class currentDateSnapshot(subtleSnapshot):
 
 
 class multipleSnapshotsLoopSnapshot(subtleSnapshot):
-    def __init__(self, *views):
+    def __init__(self, interval=15.0, *views):
         self.views = views
         self.currentView = 0
         self.forceRedraw = False
-        subtleSnapshot.__init__(self, 35, 8, self.update, 15.0)
+        subtleSnapshot.__init__(self, 35, 8, self.update, interval=interval)
     
     def update(self, draw):
         self.views[self.currentView](draw)
@@ -132,9 +132,9 @@ class multipleSnapshotsLoopSnapshot(subtleSnapshot):
             return snapshot.should_redraw(self)
 
 class dateAndWeatherSnapshot(multipleSnapshotsLoopSnapshot):
-    def __init__(self, weatherProvider):
+    def __init__(self, weatherProvider, interval=5.0):
         self.weather = weatherProvider
-        multipleSnapshotsLoopSnapshot.__init__(self, self.drawMonth, self.drawDay, self.drawTemp, self.drawDesc, self.drawLed)
+        multipleSnapshotsLoopSnapshot.__init__(self, interval, self.drawMonth, self.drawDay, self.drawTemp, self.drawDesc, self.drawLed)
     
     def drawMonth(self, draw):
         date_str = time.strftime("%d %b").upper()
@@ -149,13 +149,13 @@ class dateAndWeatherSnapshot(multipleSnapshotsLoopSnapshot):
         text(draw, coords, date_str, fill="white", font=utils.proportional2(TINY_FONT))
 
     def drawTemp(self, draw):
-        date_str = u"%d 'C" % (self.weather.temp)
-        txtlen, _ = textsize(date_str, font=utils.proportional2(TINY_FONT))
-        coords = (36 - txtlen, 2)
-        text(draw, coords, date_str, fill="white", font=utils.proportional2(TINY_FONT))
+        s = u'%d\xf8C' % (self.weather.temp)
+        w, _ = textsize(s, font=utils.proportional2(TINY_FONT))
+        text(draw, (36 - w, 2), s, fill="white", font=utils.proportional2(TINY_FONT))
+        #text(draw, (27, 1), b'\xf8C', fill="white", font=utils.proportional2(LCD_FONT))
 
     def drawDesc(self, draw):
-        date_str = u"%s" % (self.weather.lastData['weather'][0]['main'].lower())
+        date_str = self.weather.lastData['weather'][0]['main'].lower()
         txtlen, _ = textsize(date_str, font=utils.proportional2(TINY_FONT))
         coords = (36 - txtlen, 2)
         text(draw, coords, date_str, fill="white", font=utils.proportional2(TINY_FONT))
@@ -236,8 +236,8 @@ def clear():
 
 @app.route('/debug/')
 def debug():
-    global deviceViewport, weatherProvider, intensity
-    debugMsg = u'%s  |  LED: %d%%  |  NEXT MODE: %s @%s' % (weatherProvider.dayPhase.upper(), intensity, weatherProvider.nextDayPhase.upper(), weatherProvider.nextDayPhaseStart.strftime('%H:%M'))
+    global weatherProvider
+    debugMsg = u'DEBUG: %s' % (weatherProvider.lastData)
     set_contentHotspot(marqueeSnapshot(debugMsg, width=38, height=8, font=utils.proportional2(TINY_FONT), doneFunc=clear), (26, 0))
     logger.info('Last weather data: %s', weatherProvider.lastData)
 
@@ -301,7 +301,7 @@ def set_contentHotspot(hotspot, xy):
     contentHotspotXY = xy
 
 clockSnapshot = snapshot(29, 8, drawClock, 1.0)
-dateSnapshot = dateAndWeatherSnapshot(weatherProvider)
+dateSnapshot = dateAndWeatherSnapshot(weatherProvider, 15.0)
 
 deviceViewport.add_hotspot(clockSnapshot, (0, 0))
 set_contentHotspot(dateSnapshot, (29, 0))
