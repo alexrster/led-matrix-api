@@ -149,10 +149,9 @@ class dateAndWeatherSnapshot(multipleSnapshotsLoopSnapshot):
         text(draw, coords, date_str, fill="white", font=utils.proportional2(TINY_FONT))
 
     def drawTemp(self, draw):
-        s = u'%d\xf8C' % (self.weather.temp)
+        s = u'{:+.1f} \xf8c'.format(self.weather.temp)
         w, _ = textsize(s, font=utils.proportional2(TINY_FONT))
         text(draw, (36 - w, 2), s, fill="white", font=utils.proportional2(TINY_FONT))
-        #text(draw, (27, 1), b'\xf8C', fill="white", font=utils.proportional2(LCD_FONT))
 
     def drawDesc(self, draw):
         date_str = self.weather.lastData['weather'][0]['main'].lower()
@@ -238,7 +237,7 @@ def clear():
 def debug():
     global weatherProvider
     debugMsg = u'DEBUG: %s' % (weatherProvider.lastData)
-    set_contentHotspot(marqueeSnapshot(debugMsg, width=38, height=8, font=utils.proportional2(TINY_FONT), doneFunc=clear), (26, 0))
+    #set_contentHotspot(marqueeSnapshot(debugMsg, width=38, height=8, font=utils.proportional2(TINY_FONT), doneFunc=clear), (26, 0))
     logger.info('Last weather data: %s', weatherProvider.lastData)
 
     return debugMsg
